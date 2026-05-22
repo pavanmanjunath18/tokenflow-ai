@@ -39,9 +39,11 @@ def _seed_default_admin():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create tables (use `alembic upgrade head` for schema migrations in production)
-    Base.metadata.create_all(bind=engine)
-    _seed_default_admin()
+    try:
+        Base.metadata.create_all(bind=engine)
+        _seed_default_admin()
+    except Exception as exc:
+        logger.error("Startup initialisation failed (non-fatal): %s", exc)
     yield
 
 

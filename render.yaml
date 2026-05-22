@@ -15,6 +15,7 @@ services:
     plan: free
     buildCommand: bash scripts/build.sh
     startCommand: cd backend && bash start.sh
+    healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
         sync: false        # paste your Neon connection string here
