@@ -25,6 +25,23 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// ── query string helper ───────────────────────────────────────────────────────
+
+export interface DashboardParams {
+  start_date?: string;
+  end_date?: string;
+  department?: string;
+  provider?: string;
+  model?: string;
+}
+
+function _qs(p?: DashboardParams): string {
+  if (!p) return "";
+  const entries = Object.entries(p).filter(([, v]) => v != null && v !== "");
+  if (!entries.length) return "";
+  return "?" + entries.map(([k, v]) => `${k}=${encodeURIComponent(v as string)}`).join("&");
+}
+
 // ── types ────────────────────────────────────────────────────────────────────
 
 export interface CurrentUser {
@@ -119,7 +136,14 @@ export interface IntegrationStatus {
   source_type: string;
   connection_mode: string;
   rows_ingested: number;
+  rows_skipped: number;
   last_sync: string | null;
+  last_sync_success: string | null;
+  last_sync_failed: string | null;
+  last_duration_ms: number;
+  validation_warnings: number;
+  watermark_since: string | null;
+  health: "healthy" | "degraded" | "failed" | "not_synced" | "syncing";
   status: string;
   schema_valid: boolean;
   production_equivalent: string;
@@ -162,10 +186,10 @@ export const authApi = {
 
 export const api = {
   // dashboard
-  overview:       () => apiFetch<DashboardOverview>("/api/dashboard/overview"),
-  spendOverTime:  () => apiFetch<SpendPoint[]>("/api/dashboard/spend-over-time"),
-  departments:    () => apiFetch<DepartmentStat[]>("/api/dashboard/departments"),
-  models:         () => apiFetch<ModelStat[]>("/api/dashboard/models"),
+  overview:       (p?: DashboardParams) => apiFetch<DashboardOverview>(`/api/dashboard/overview${_qs(p)}`),
+  spendOverTime:  (p?: DashboardParams) => apiFetch<SpendPoint[]>(`/api/dashboard/spend-over-time${_qs(p)}`),
+  departments:    (p?: DashboardParams) => apiFetch<DepartmentStat[]>(`/api/dashboard/departments${_qs(p)}`),
+  models:         (p?: DashboardParams) => apiFetch<ModelStat[]>(`/api/dashboard/models${_qs(p)}`),
 
   // licenses
   licenseWaste:   () => apiFetch<LicenseWasteSummary>("/api/licenses/waste"),
@@ -183,9 +207,10 @@ export const api = {
   // integrations
   integrationStatus: () => apiFetch<IntegrationStatus[]>("/api/integrations/status"),
   syncSource: (source: string) =>
-    apiFetch<{ rows_ingested: number; status: string }>(`/api/integrations/sync/${source}`, { method: "POST" }),
+    apiFetch<{ rows_ingested: number; rows_skipped: number; status: string; message: string }>(`/api/integrations/sync/${source}`, { method: "POST" }),
   syncAll: () =>
-    apiFetch<{ rows_ingested: number; status: string }[]>("/api/integrations/sync/all/run", { method: "POST" }),
+    apiFetch<{ rows_ingested: number; rows_skipped: number; status: string; message: string }[]>("/api/integrations/sync/all/run", { method: "POST" }),
+  filterOptions: () => apiFetch<{ departments: string[]; providers: string[] }>("/api/dashboard/filter-options"),
 
   // governance
   governanceSummary: () => apiFetch<{

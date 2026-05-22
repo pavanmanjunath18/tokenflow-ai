@@ -1,5 +1,5 @@
 """
-Connector sync → DB using transactional UPSERT.
+Connector sync → DB using transactional UPSERT with watermark filtering.
 
 Source ownership (each source owns its table exclusively):
   api_gateway  → ai_usage_events       (authoritative analytics source)
@@ -10,20 +10,27 @@ Source ownership (each source owns its table exclusively):
   kafka        → kafka_events           (supplemental, NOT usage_events)
   clickhouse   → clickhouse_aggregates  (supplemental, pre-aggregated)
   kubernetes   → kubernetes_logs
-  productivity → (no DB table yet — schema verified, count returned)
+  productivity → (no DB table — schema verified, count returned)
 
 Ingestion pattern: UPSERT using PostgreSQL ON CONFLICT DO UPDATE.
   - No table is ever truncated
   - Re-syncing the same data is idempotent
   - Failed syncs leave existing data intact
-  - Watermark: sync run records started_at / finished_at for history
+
+Watermark pattern:
+  - For each sync, we look up the last successful finished_at for that source.
+  - This timestamp is passed to the connector as 'since'.
+  - Time-series connectors (api_gateway, browser, kafka, clickhouse, kubernetes)
+    filter out rows older than 'since', counting them as rows_skipped.
+  - Reference-data connectors (identity, pricing, licenses) ignore 'since' and
+    always return a full dataset (reference tables are small and full-refresh is safe).
 """
 
 import logging
 import time
 from datetime import datetime, timezone
 
-from sqlalchemy import text
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -47,6 +54,7 @@ from app.models.kafka_event import KafkaEvent
 from app.models.clickhouse_aggregate import ClickHouseAggregate
 from app.models.integration import IntegrationSyncRun
 from app.models.audit_log import AuditLog
+from app.models.validation_log import IngestionValidationLog
 
 logger = logging.getLogger(__name__)
 
@@ -63,14 +71,31 @@ CONNECTORS = {
 }
 
 
+def _get_last_success_time(source: str, db: Session) -> datetime | None:
+    """Return the finished_at timestamp of the most recent successful sync run."""
+    result = (
+        db.query(func.max(IntegrationSyncRun.finished_at))
+        .filter(
+            IntegrationSyncRun.source_name == source,
+            IntegrationSyncRun.status == "success",
+        )
+        .scalar()
+    )
+    return result
+
+
 def sync_source(source: str, db: Session, triggered_by: str = "system") -> dict:
     if source not in CONNECTORS:
         raise ValueError(f"Unknown source: {source}. Available: {list(CONNECTORS)}")
+
+    # Look up last successful sync time for watermark
+    since = _get_last_success_time(source, db)
 
     run = IntegrationSyncRun(
         source_name=source,
         started_at=datetime.now(timezone.utc),
         triggered_by=triggered_by,
+        watermark_since=since,
     )
     db.add(run)
     db.flush()
@@ -78,20 +103,25 @@ def sync_source(source: str, db: Session, triggered_by: str = "system") -> dict:
     t_start = time.monotonic()
     try:
         connector = CONNECTORS[source]()
-        rows, errors = connector.sync()
+        result = connector.sync(since=since)
 
-        warning_count = len(errors)
-        if errors:
-            logger.warning("Schema warnings for %s: %s", source, errors)
+        warning_count = len(result.schema_errors) + len(result.row_warnings)
+        if result.schema_errors:
+            logger.warning("Schema warnings for %s: %s", source, result.schema_errors)
             run.schema_valid = False
 
-        ingested = _load(source, rows, db)
+        ingested = _load(source, result.rows, db)
 
         run.rows_ingested = ingested
+        run.rows_skipped = result.rows_skipped
         run.validation_warnings_count = warning_count
         run.status = "success"
         run.finished_at = datetime.now(timezone.utc)
         run.duration_ms = int((time.monotonic() - t_start) * 1000)
+
+        # Persist row-level validation warnings
+        if result.row_warnings:
+            _persist_validation_logs(run.id, source, result.schema_errors, result.row_warnings, db)
 
         db.add(AuditLog(
             action="integration_sync",
@@ -99,15 +129,23 @@ def sync_source(source: str, db: Session, triggered_by: str = "system") -> dict:
             resource_id=source,
             actor=triggered_by,
             actor_email=triggered_by,
-            details=f"Upserted {ingested} rows via {connector.source_type} connector",
+            details=(
+                f"Upserted {ingested} rows, skipped {result.rows_skipped} "
+                f"(watermark: {since.isoformat() if since else 'full'}), "
+                f"{warning_count} warnings"
+            ),
         ))
         db.commit()
         return {
             "source": source,
             "rows_ingested": ingested,
+            "rows_skipped": result.rows_skipped,
             "rows_failed": 0,
             "status": "success",
-            "message": f"Upserted {ingested} rows in {run.duration_ms}ms",
+            "message": (
+                f"Upserted {ingested} rows in {run.duration_ms}ms "
+                f"(skipped {result.rows_skipped} via watermark)"
+            ),
         }
 
     except Exception as exc:
@@ -122,6 +160,7 @@ def sync_source(source: str, db: Session, triggered_by: str = "system") -> dict:
         return {
             "source": source,
             "rows_ingested": 0,
+            "rows_skipped": 0,
             "rows_failed": 0,
             "status": "failed",
             "message": str(exc),
@@ -130,6 +169,40 @@ def sync_source(source: str, db: Session, triggered_by: str = "system") -> dict:
 
 def sync_all(db: Session, triggered_by: str = "system") -> list[dict]:
     return [sync_source(s, db, triggered_by=triggered_by) for s in CONNECTORS]
+
+
+# ── validation log persistence ────────────────────────────────────────────────
+
+def _persist_validation_logs(
+    run_id: int,
+    connector_name: str,
+    schema_errors: list[str],
+    row_warnings: list[dict],
+    db: Session,
+) -> None:
+    logs = []
+    for err in schema_errors:
+        logs.append(IngestionValidationLog(
+            run_id=run_id,
+            connector_name=connector_name,
+            row_number=0,
+            field_name="",
+            error_type="schema",
+            raw_value="",
+            error_message=err,
+        ))
+    for w in row_warnings:
+        logs.append(IngestionValidationLog(
+            run_id=run_id,
+            connector_name=connector_name,
+            row_number=w.get("row_number", 0),
+            field_name=w.get("field_name", ""),
+            error_type=w.get("error_type", "missing_value"),
+            raw_value=w.get("raw_value", ""),
+            error_message=w.get("message", ""),
+        ))
+    if logs:
+        db.bulk_save_objects(logs)
 
 
 # ── loaders ───────────────────────────────────────────────────────────────────
@@ -265,7 +338,6 @@ def _upsert_batch(
         }
 
         if not update_set:
-            # Nothing to update — use ON CONFLICT DO NOTHING for PK-only tables
             stmt = stmt.on_conflict_do_nothing(index_elements=[conflict_col])
         else:
             stmt = stmt.on_conflict_do_update(

@@ -13,7 +13,14 @@ class IntegrationStatus(OrmBase):
     source_type: str
     connection_mode: str
     rows_ingested: int
+    rows_skipped: int
     last_sync: datetime | None
+    last_sync_success: datetime | None
+    last_sync_failed: datetime | None
+    last_duration_ms: int
+    validation_warnings: int
+    watermark_since: datetime | None
+    health: str                        # healthy / degraded / failed / not_synced / syncing
     status: str
     schema_valid: bool
     production_equivalent: str
@@ -22,6 +29,7 @@ class IntegrationStatus(OrmBase):
 class SyncResponse(BaseModel):
     source: str
     rows_ingested: int
+    rows_skipped: int = 0
     rows_failed: int
     status: str
     message: str

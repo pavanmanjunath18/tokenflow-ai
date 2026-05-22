@@ -1,7 +1,16 @@
-"""Core analytics queries — all read from ai_usage_events."""
+"""Core analytics queries — all read from ai_usage_events.
 
-from datetime import datetime, timezone
-from sqlalchemy import func, text, Integer, case
+Filters (all optional):
+  start_date  — inclusive lower bound on event timestamp (date)
+  end_date    — inclusive upper bound on event timestamp (date)
+  department  — exact match on department name
+  provider    — exact match on provider name
+  model       — exact match on model_name
+"""
+
+from dataclasses import dataclass
+from datetime import datetime, date, timezone, timedelta
+from sqlalchemy import func, text, case
 from sqlalchemy.orm import Session
 
 from app.models.usage_event import AIUsageEvent
@@ -9,10 +18,38 @@ from app.models.license import AILicense
 from app.models.model_pricing import ModelPricing
 
 
+@dataclass
+class AnalyticsFilters:
+    start_date: date | None = None
+    end_date: date | None = None
+    department: str | None = None
+    provider: str | None = None
+    model: str | None = None
+
+
+def _base_query(db: Session, f: AnalyticsFilters):
+    """Return a base AIUsageEvent query with all active filters applied."""
+    q = db.query(AIUsageEvent)
+    if f.start_date:
+        q = q.filter(AIUsageEvent.timestamp >= datetime.combine(f.start_date, datetime.min.time()))
+    if f.end_date:
+        q = q.filter(AIUsageEvent.timestamp < datetime.combine(f.end_date + timedelta(days=1), datetime.min.time()))
+    if f.department:
+        q = q.filter(AIUsageEvent.department == f.department)
+    if f.provider:
+        q = q.filter(AIUsageEvent.provider == f.provider)
+    if f.model:
+        q = q.filter(AIUsageEvent.model_name == f.model)
+    return q
+
+
 # ── overview ──────────────────────────────────────────────────────────────────
 
-def get_overview(db: Session) -> dict:
-    q = db.query(
+def get_overview(db: Session, f: AnalyticsFilters | None = None) -> dict:
+    f = f or AnalyticsFilters()
+    bq = _base_query(db, f)
+
+    q = bq.with_entities(
         func.sum(AIUsageEvent.cost_usd).label("total_spend"),
         func.sum(AIUsageEvent.total_tokens).label("total_tokens"),
         func.count(AIUsageEvent.id).label("total_requests"),
@@ -31,7 +68,7 @@ def get_overview(db: Session) -> dict:
     monthly_projected = (total_spend / days) * 30
 
     top_dept_row = (
-        db.query(AIUsageEvent.department, func.sum(AIUsageEvent.cost_usd).label("s"))
+        bq.with_entities(AIUsageEvent.department, func.sum(AIUsageEvent.cost_usd).label("s"))
         .group_by(AIUsageEvent.department)
         .order_by(text("s DESC"))
         .first()
@@ -39,7 +76,7 @@ def get_overview(db: Session) -> dict:
     top_dept = top_dept_row.department if top_dept_row else "—"
 
     high_risk = (
-        db.query(func.count(AIUsageEvent.id))
+        bq.with_entities(func.count(AIUsageEvent.id))
         .filter(AIUsageEvent.expensive_model_simple_task == True)  # noqa: E712
         .scalar() or 0
     )
@@ -51,7 +88,7 @@ def get_overview(db: Session) -> dict:
     )
 
     flagged_cost = float(
-        db.query(func.sum(AIUsageEvent.cost_usd))
+        bq.with_entities(func.sum(AIUsageEvent.cost_usd))
         .filter(AIUsageEvent.expensive_model_simple_task == True)  # noqa: E712
         .scalar() or 0
     )
@@ -80,9 +117,11 @@ def get_overview(db: Session) -> dict:
 
 # ── spend over time ───────────────────────────────────────────────────────────
 
-def get_spend_over_time(db: Session) -> list[dict]:
+def get_spend_over_time(db: Session, f: AnalyticsFilters | None = None) -> list[dict]:
+    f = f or AnalyticsFilters()
     rows = (
-        db.query(
+        _base_query(db, f)
+        .with_entities(
             func.date_trunc("day", AIUsageEvent.timestamp).label("day"),
             func.sum(AIUsageEvent.cost_usd).label("cost"),
         )
@@ -95,13 +134,15 @@ def get_spend_over_time(db: Session) -> list[dict]:
 
 # ── department stats ──────────────────────────────────────────────────────────
 
-def get_department_stats(db: Session) -> list[dict]:
+def get_department_stats(db: Session, f: AnalyticsFilters | None = None) -> list[dict]:
+    f = f or AnalyticsFilters()
     expensive_simple_sum = func.sum(
         case((AIUsageEvent.expensive_model_simple_task == True, 1), else_=0)  # noqa: E712
     )
 
+    bq = _base_query(db, f)
     rows = (
-        db.query(
+        bq.with_entities(
             AIUsageEvent.department,
             func.sum(AIUsageEvent.cost_usd).label("total_cost"),
             func.sum(AIUsageEvent.total_tokens).label("total_tokens"),
@@ -113,11 +154,11 @@ def get_department_stats(db: Session) -> list[dict]:
         .all()
     )
 
-    # top model per dept
+    # Top model per dept (respects same date/provider/model filters)
     top_models: dict[str, str] = {}
-    for (dept,) in db.query(AIUsageEvent.department).distinct():
+    for (dept,) in bq.with_entities(AIUsageEvent.department).distinct():
         tm = (
-            db.query(AIUsageEvent.model_name, func.count(AIUsageEvent.id).label("c"))
+            bq.with_entities(AIUsageEvent.model_name, func.count(AIUsageEvent.id).label("c"))
             .filter(AIUsageEvent.department == dept)
             .group_by(AIUsageEvent.model_name)
             .order_by(text("c DESC"))
@@ -143,13 +184,15 @@ def get_department_stats(db: Session) -> list[dict]:
 
 # ── model stats ───────────────────────────────────────────────────────────────
 
-def get_model_stats(db: Session) -> list[dict]:
+def get_model_stats(db: Session, f: AnalyticsFilters | None = None) -> list[dict]:
+    f = f or AnalyticsFilters()
     expensive_simple_sum = func.sum(
         case((AIUsageEvent.expensive_model_simple_task == True, 1), else_=0)  # noqa: E712
     )
 
+    bq = _base_query(db, f)
     rows = (
-        db.query(
+        bq.with_entities(
             AIUsageEvent.model_name,
             AIUsageEvent.provider,
             func.sum(AIUsageEvent.cost_usd).label("total_cost"),
@@ -190,3 +233,15 @@ def get_model_stats(db: Session) -> list[dict]:
             "estimated_savings_if_downgraded":  round(flagged_cost, 2),
         })
     return out
+
+
+# ── filter helpers ────────────────────────────────────────────────────────────
+
+def get_available_departments(db: Session) -> list[str]:
+    rows = db.query(AIUsageEvent.department).distinct().order_by(AIUsageEvent.department).all()
+    return [r.department for r in rows if r.department]
+
+
+def get_available_providers(db: Session) -> list[str]:
+    rows = db.query(AIUsageEvent.provider).distinct().order_by(AIUsageEvent.provider).all()
+    return [r.provider for r in rows if r.provider]

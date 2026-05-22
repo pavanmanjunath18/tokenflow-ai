@@ -10,6 +10,7 @@ from app.models.clickhouse_aggregate import ClickHouseAggregate
 from app.models.recommendation import Recommendation
 from app.models.integration import IntegrationSyncRun
 from app.models.audit_log import AuditLog
+from app.models.validation_log import IngestionValidationLog
 
 __all__ = [
     "User",
@@ -17,4 +18,5 @@ __all__ = [
     "AIUsageEvent", "BrowserEvent", "KubernetesLog",
     "KafkaEvent", "ClickHouseAggregate",
     "Recommendation", "IntegrationSyncRun", "AuditLog",
+    "IngestionValidationLog",
 ]

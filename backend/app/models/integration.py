@@ -22,3 +22,5 @@ class IntegrationSyncRun(Base):
     error_message: Mapped[str] = mapped_column(Text, default="")
     schema_valid: Mapped[bool] = mapped_column(Boolean, default=True)
     triggered_by: Mapped[str] = mapped_column(String(300), default="system")
+    # Watermark: the since-timestamp passed to the connector for incremental sync
+    watermark_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
