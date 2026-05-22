@@ -1,0 +1,53 @@
+{
+  "generated_at": "2026-05-21T23:18:43.259955Z",
+  "seed": 42,
+  "period": {
+    "start": "2024-12-01T00:00:00",
+    "end": "2025-05-31T23:59:59"
+  },
+  "files": {
+    "identity_directory.csv": {
+      "rows": 150,
+      "phase": 1
+    },
+    "model_pricing.csv": {
+      "rows": 12,
+      "phase": 1
+    },
+    "ai_license_inventory.csv": {
+      "rows": 220,
+      "phase": 1
+    },
+    "api_gateway_traces.csv": {
+      "rows": 120000,
+      "phase": 1
+    },
+    "browser_extension_events.csv": {
+      "rows": 30000,
+      "phase": 2
+    },
+    "kafka_ai_telemetry.jsonl": {
+      "rows": 20000,
+      "phase": 2
+    },
+    "clickhouse_ai_traces.csv": {
+      "rows": 54897,
+      "phase": 2
+    },
+    "kubernetes_gateway_logs.csv": {
+      "rows": 26208,
+      "phase": 2
+    },
+    "productivity_metrics.csv": {
+      "rows": 1950,
+      "phase": 2
+    }
+  },
+  "summary": {
+    "employees": 150,
+    "departments": 8,
+    "models": 12,
+    "gateway_events": 120000,
+    "total_cost_usd": 2239.83
+  }
+}

@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend — lint + import check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check imports compile
+        run: |
+          python -c "
+          from app.config import settings
+          from app.models import Employee, ModelPricing, AILicense, AIUsageEvent, BrowserEvent, KubernetesLog, Recommendation, IntegrationSyncRun, AuditLog
+          from app.connectors.identity_connector import IdentityConnector
+          from app.connectors.api_gateway_connector import APIGatewayConnector
+          from app.connectors.browser_extension_connector import BrowserExtensionConnector
+          from app.connectors.kubernetes_connector import KubernetesLogsConnector
+          print('All imports OK')
+          "
+        env:
+          DATABASE_URL: postgresql://tokenflow:tokenflow@localhost:5432/tokenflow_db
+
+  frontend:
+    name: Frontend — type-check + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8001
+
+  synthetic-data:
+    name: Data generator — smoke test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install numpy/pandas
+        run: pip install numpy pandas
+
+      - name: Run generator (reduced scale)
+        run: |
+          python scripts/generate_synthetic_data.py
+        env:
+          # Override scale for CI speed — generator reads these if added later
+          CI: "true"
