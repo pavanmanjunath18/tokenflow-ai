@@ -149,6 +149,54 @@ export interface IntegrationStatus {
   production_equivalent: string;
 }
 
+export interface ActivityEvent {
+  id: number;
+  source_name: string;
+  status: "running" | "success" | "failed";
+  started_at: string | null;
+  finished_at: string | null;
+  duration_ms: number;
+  rows_ingested: number;
+  rows_skipped: number;
+  validation_warnings_count: number;
+  triggered_by: string;
+  error_message: string;
+}
+
+export interface HeartbeatEntry {
+  source: string;
+  status: "healthy" | "stale" | "no_data" | "unknown";
+  data_freshness_hours: number | null;
+  checked_at: string | null;
+}
+
+export type HeartbeatData = Record<string, HeartbeatEntry>;
+
+export interface SystemStatus {
+  redis: "connected" | "disconnected";
+  redis_version: string;
+  active_jobs: number;
+  queue_depth: number;
+  worker: string;
+  worker_command: string;
+}
+
+export interface TaskStatus {
+  job_id: string;
+  status: "queued" | "in_progress" | "complete" | "not_found" | "unknown";
+  enqueue_time: string | null;
+  start_time: string | null;
+  finish_time: string | null;
+  result: unknown;
+}
+
+export interface QueuedSyncResponse {
+  source: string;
+  job_id: string;
+  status: "queued" | "success" | "failed";
+  message: string;
+}
+
 export interface AuditLog {
   id: number;
   timestamp: string;
@@ -207,9 +255,19 @@ export const api = {
   // integrations
   integrationStatus: () => apiFetch<IntegrationStatus[]>("/api/integrations/status"),
   syncSource: (source: string) =>
-    apiFetch<{ rows_ingested: number; rows_skipped: number; status: string; message: string }>(`/api/integrations/sync/${source}`, { method: "POST" }),
+    apiFetch<QueuedSyncResponse>(`/api/integrations/sync/${source}`, { method: "POST" }),
   syncAll: () =>
-    apiFetch<{ rows_ingested: number; rows_skipped: number; status: string; message: string }[]>("/api/integrations/sync/all/run", { method: "POST" }),
+    apiFetch<QueuedSyncResponse[]>("/api/integrations/sync/all/run", { method: "POST" }),
+  retrySync: (runId: number) =>
+    apiFetch<QueuedSyncResponse>(`/api/integrations/retry/${runId}`, { method: "POST" }),
+  activityFeed: (limit = 20) =>
+    apiFetch<ActivityEvent[]>(`/api/integrations/activity?limit=${limit}`),
+  heartbeat: () =>
+    apiFetch<HeartbeatData>("/api/integrations/heartbeat"),
+  taskStatus: (jobId: string) =>
+    apiFetch<TaskStatus>(`/api/tasks/${jobId}`),
+  systemStatus: () =>
+    apiFetch<SystemStatus>("/api/system/status"),
   filterOptions: () => apiFetch<{ departments: string[]; providers: string[] }>("/api/dashboard/filter-options"),
 
   // governance

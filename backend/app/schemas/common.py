@@ -28,10 +28,11 @@ class IntegrationStatus(OrmBase):
 
 class SyncResponse(BaseModel):
     source: str
-    rows_ingested: int
+    job_id: str = ""        # arq job ID when enqueued async; empty for direct sync
+    rows_ingested: int = 0
     rows_skipped: int = 0
-    rows_failed: int
-    status: str
+    rows_failed: int = 0
+    status: str             # "queued" | "success" | "failed"
     message: str
 
 

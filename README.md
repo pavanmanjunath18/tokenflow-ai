@@ -53,8 +53,12 @@ Ingestion Service (UPSERT + validation log + audit trail)
 PostgreSQL (11 tables)
     ↓
 FastAPI Services (analytics, licenses, recommendations, ingestion)
+    ↑↓ enqueue / poll
+Arq Worker (background sync tasks, heartbeat cron every 15 min)
+    ↑↓ broker + cache
+Redis (task queue + integration status cache + heartbeat snapshots)
     ↓
-Next.js 16 (App Router, JWT auth, RBAC-gated UI)
+Next.js 16 (App Router, JWT auth, RBAC-gated UI + live polling)
 ```
 
 ---
@@ -135,16 +139,18 @@ The frontend filter bar (toggled via the Filters button) populates dropdowns fro
 | Frontend | Next.js 16, TypeScript, Tailwind CSS, Recharts |
 | Backend | FastAPI 0.115, Python 3.12+, SQLAlchemy 2, Pydantic v2 |
 | Database | PostgreSQL 16 |
+| Task Queue | Arq 0.25 (async worker, cron jobs, 3-retry policy) |
+| Cache | Redis (integration status 15 s, dashboard overview 60 s) |
 | Auth | JWT (python-jose) + RBAC (admin / reviewer / analyst / viewer) |
 | Migrations | Alembic |
-| Tests | pytest, savepoint-isolation against a real Postgres test DB |
+| Tests | pytest, savepoint-isolation against a real Postgres test DB; fakeredis for cache tests |
 | Containerisation | Docker, docker-compose |
 
 ---
 
 ## Local Setup (no Docker)
 
-**Prerequisites:** Python 3.11+, Node 18+, PostgreSQL running locally.
+**Prerequisites:** Python 3.11+, Node 18+, PostgreSQL running locally, **Redis running locally** (Phase 5).
 
 ```bash
 # 1. Clone / enter project
@@ -167,11 +173,16 @@ python -m alembic upgrade head
 # 6. Start backend
 python -m uvicorn app.main:app --port 8000 --reload
 
-# 7. Start frontend (new terminal)
+# 7. Start arq background worker (new terminal — requires Redis)
+cd backend && arq app.worker.settings.WorkerSettings
+
+# 8. Start frontend (new terminal)
 cd ../frontend && npm install && npm run dev
 ```
 
 Open **http://localhost:3000/login** — default credentials: `admin@tokenflow.local` / `tokenflow2024`.
+
+**Without Redis:** the app still works — sync endpoints degrade gracefully to showing "Redis unavailable" in the system status bar, and the Integrations page system bar shows `Redis disconnected`. Start Redis locally (`brew install redis && redis-server`) to unlock background workers, live polling, and caching.
 
 Sync all connectors and generate recommendations from the **Integrations** page (admin only).
 
@@ -303,10 +314,67 @@ tokenflow_ai/
 
 ---
 
+## Async Architecture (Phase 5)
+
+### Background Workers
+
+Syncs are non-blocking. `POST /api/integrations/sync/{source}` enqueues an arq job and returns `{job_id, status: "queued"}` immediately. The arq worker executes the sync in the background and invalidates relevant Redis caches on completion.
+
+```
+POST /api/integrations/sync/api_gateway
+→ {"source": "api_gateway", "job_id": "abc123", "status": "queued"}
+
+GET /api/tasks/abc123
+→ {"status": "in_progress", "start_time": "…"}   # poll until "complete"
+```
+
+Start the worker:
+```bash
+cd backend && arq app.worker.settings.WorkerSettings
+```
+
+Worker configuration (`app/worker/settings.py`):
+- `max_jobs = 10` — up to 10 concurrent syncs
+- `job_timeout = 300` — 5 min per sync before cancellation
+- `max_tries = 3` — auto-retry on unhandled exception
+- `keep_result = 600` — job result available in Redis for 10 min after completion
+- Heartbeat cron runs every 15 min and on worker startup
+
+### Redis Cache
+
+| Key | TTL | Invalidated by |
+|---|---|---|
+| `integrations:status` | 15 s | Worker after each sync |
+| `integrations:heartbeat:{source}` | 3600 s | Heartbeat cron |
+| `dashboard:overview:{hash}` | 60 s | Worker after each sync |
+| `dashboard:filter-options` | 300 s | Never (stable reference data) |
+
+### Heartbeat Metrics
+
+The heartbeat cron task checks every connector's data freshness (time since last successful sync) and stores the result in Redis. The Integrations page displays per-connector "Fresh / Stale / No data" badges populated from `GET /api/integrations/heartbeat` — which falls back to a live DB query if Redis isn't populated yet.
+
+### Live Polling
+
+The Integrations page auto-polls `/api/integrations/status` and `/api/integrations/activity` every 3 s when any connector reports `health: "syncing"`. Polling stops automatically when all connectors settle.
+
+### New Endpoints (Phase 5)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/integrations/retry/{run_id}` | Re-enqueue a failed sync by run ID |
+| GET | `/api/integrations/activity` | Recent sync event stream (newest first) |
+| GET | `/api/integrations/heartbeat` | Per-connector data-freshness snapshot |
+| GET | `/api/tasks/{job_id}` | Poll arq job status by ID |
+| GET | `/api/system/status` | Redis connectivity, worker, active job count |
+
+---
+
 ## Resume Bullets
 
-- Built a full-stack enterprise AI governance platform (Next.js 16 + FastAPI + PostgreSQL) with JWT auth, RBAC (admin / reviewer / analyst / viewer), and 105-test pytest suite with savepoint-isolation
-- Designed connector-based incremental ingestion: watermark-filtered UPSERT syncs, per-row schema-drift validation logs, and per-connector health observability (duration, warnings, skipped rows, last success/failure)
+- Built a full-stack enterprise AI governance platform (Next.js 16 + FastAPI + PostgreSQL) with JWT auth, RBAC (admin / reviewer / analyst / viewer), and 142-test pytest suite with savepoint-isolation
+- Designed async connector orchestration with Arq background workers: non-blocking sync queue, 3-retry policy, 5-min job timeout, heartbeat cron, and Redis-backed caching (15 s–5 min TTLs)
+- Implemented per-connector operational observability: live polling UI (3 s auto-refresh), activity feed, data-freshness heartbeat badges, retry-failed-run endpoint, and a system status bar surfacing Redis/queue/worker health
+- Designed connector-based incremental ingestion: watermark-filtered UPSERT syncs, per-row schema-drift validation logs, and per-connector health states (healthy / degraded / failed / syncing / not_synced)
 - Implemented a rule-based recommendation engine with SHA-256 deduplication — preserves in-flight investigations across re-runs, surfaces $760+/month in projected savings on synthetic data
-- Added date/department/provider filter params across all dashboard analytics endpoints, backed by a composable `AnalyticsFilters` dataclass
+- Added date/department/provider filter params across all dashboard analytics endpoints, backed by a composable `AnalyticsFilters` dataclass; results cached in Redis with filter-keyed TTLs
 - Applied privacy-by-design: team-level analytics by default, no raw prompt storage, all write actions gated behind RBAC and logged to an immutable audit trail

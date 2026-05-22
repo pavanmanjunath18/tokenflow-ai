@@ -15,8 +15,8 @@ export default function SettingsPage() {
     setSyncResult(null);
     try {
       const results = await api.syncAll();
-      const total = results.reduce((s, r) => s + r.rows_ingested, 0);
-      setSyncResult(`Synced ${results.length} sources · ${total.toLocaleString()} rows total`);
+      const queued = results.filter(r => r.status === "queued").length;
+      setSyncResult(`Queued ${queued} of ${results.length} sources — check Integrations for live status`);
     } catch (e: unknown) {
       setSyncResult(`Error: ${e instanceof Error ? e.message : String(e)}`);
     } finally {

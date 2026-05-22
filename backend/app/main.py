@@ -8,6 +8,8 @@ from app.config import settings
 from app.database import Base, engine
 from app.api import integrations, dashboard, licenses, recommendations, audit, governance, infrastructure
 from app.api import auth as auth_router
+from app.api import tasks as tasks_router
+from app.api import system as system_router
 
 logging.basicConfig(level=settings.log_level.upper())
 logger = logging.getLogger(__name__)
@@ -66,6 +68,8 @@ app.include_router(recommendations.router, prefix="/api")
 app.include_router(governance.router,      prefix="/api")
 app.include_router(infrastructure.router,  prefix="/api")
 app.include_router(audit.router,           prefix="/api")
+app.include_router(tasks_router.router,    prefix="/api")
+app.include_router(system_router.router,   prefix="/api")
 
 
 @app.get("/health")

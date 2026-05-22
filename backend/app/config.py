@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     synthetic_data_dir: str = str(Path(__file__).parent.parent.parent / "synthetic-data")
     allowed_origins: str = "http://localhost:3000"
 
+    # Redis / async queue
+    redis_url: str = "redis://localhost:6379/0"
+
     # JWT / auth
     jwt_secret: str = "change-me-in-production-use-a-32-char-secret"
     jwt_algorithm: str = "HS256"

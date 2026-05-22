@@ -1,3 +1,4 @@
+import hashlib
 from datetime import date
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -5,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.services import analytics_service
 from app.services.analytics_service import AnalyticsFilters
+from app.services import cache_service
 from app.schemas.common import DashboardOverview, SpendPoint, DepartmentStat, ModelStat
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -26,12 +28,23 @@ def _filters(
     )
 
 
+def _filter_hash(f: AnalyticsFilters) -> str:
+    key = f"{f.start_date}:{f.end_date}:{f.department}:{f.provider}:{f.model}"
+    return hashlib.md5(key.encode()).hexdigest()[:12]
+
+
 @router.get("/overview", response_model=DashboardOverview)
 def overview(
     f: AnalyticsFilters = Depends(_filters),
     db: Session = Depends(get_db),
 ):
-    return analytics_service.get_overview(db, f)
+    cache_key = f"dashboard:overview:{_filter_hash(f)}"
+    cached = cache_service.cache_get(cache_key)
+    if cached:
+        return cached
+    result = analytics_service.get_overview(db, f)
+    cache_service.cache_set(cache_key, result if isinstance(result, dict) else result.__dict__, ttl=60)
+    return result
 
 
 @router.get("/spend-over-time", response_model=list[SpendPoint])
@@ -60,8 +73,13 @@ def models(
 
 @router.get("/filter-options")
 def filter_options(db: Session = Depends(get_db)):
-    """Available filter values for the dashboard UI dropdowns."""
-    return {
+    """Available filter values for the dashboard UI dropdowns. Cached for 5 min."""
+    cached = cache_service.cache_get("dashboard:filter-options")
+    if cached:
+        return cached
+    result = {
         "departments": analytics_service.get_available_departments(db),
         "providers":   analytics_service.get_available_providers(db),
     }
+    cache_service.cache_set("dashboard:filter-options", result, ttl=300)
+    return result
