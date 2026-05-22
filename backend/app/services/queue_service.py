@@ -14,7 +14,13 @@ logger = logging.getLogger(__name__)
 def _redis_settings():
     from arq.connections import RedisSettings
     from app.config import settings
-    return RedisSettings.from_dsn(settings.redis_url)
+    url = settings.redis_url
+    # Upstash and other managed services use rediss:// (TLS).
+    # arq's RedisSettings.from_dsn doesn't recognise "rediss://" natively,
+    # so strip the extra 's' and pass ssl=True explicitly.
+    if url.startswith("rediss://"):
+        return RedisSettings.from_dsn(url.replace("rediss://", "redis://", 1), ssl=True)
+    return RedisSettings.from_dsn(url)
 
 
 async def enqueue_sync(source_name: str, triggered_by: str = "system") -> str:

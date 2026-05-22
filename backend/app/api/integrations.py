@@ -18,12 +18,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+import logging
+
 from app.core.deps import require_admin, get_current_user
 from app.database import get_db
 from app.models.user import User
-from app.services.ingestion_service import CONNECTORS
+from app.services.ingestion_service import CONNECTORS, sync_source, sync_all
 from app.services import cache_service
 from app.services.queue_service import enqueue_sync, enqueue_sync_all
+
+logger = logging.getLogger(__name__)
 from app.models.integration import IntegrationSyncRun
 from app.models.validation_log import IngestionValidationLog
 from app.connectors.identity_connector import IdentityConnector
@@ -72,16 +76,24 @@ async def sync_one(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """Enqueue a single connector sync. Returns immediately with job_id."""
+    """
+    Enqueue a connector sync via arq (returns job_id immediately).
+    Falls back to synchronous execution when Redis / arq is unavailable.
+    """
     if source not in CONNECTORS:
         raise HTTPException(status_code=404, detail=f"Unknown source: {source}")
-    job_id = await enqueue_sync(source, triggered_by=current_user.email)
-    return SyncResponse(
-        source=source,
-        job_id=job_id,
-        status="queued",
-        message=f"Sync queued for {source} — poll /api/tasks/{job_id} for status",
-    )
+    try:
+        job_id = await enqueue_sync(source, triggered_by=current_user.email)
+        return SyncResponse(
+            source=source,
+            job_id=job_id,
+            status="queued",
+            message=f"Sync queued for {source} — poll /api/tasks/{job_id} for status",
+        )
+    except Exception as exc:
+        logger.warning("Redis unavailable, running %s sync synchronously: %s", source, exc)
+        result = sync_source(source, db, triggered_by=current_user.email)
+        return SyncResponse(**result)
 
 
 @router.post("/sync/all/run", response_model=list[SyncResponse])
@@ -89,17 +101,25 @@ async def sync_all_sources(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """Enqueue all 9 connector syncs. Returns immediately with per-source job IDs."""
-    results = await enqueue_sync_all(triggered_by=current_user.email)
-    return [
-        SyncResponse(
-            source=r["source"],
-            job_id=r["job_id"],
-            status="queued",
-            message=f"Queued — poll /api/tasks/{r['job_id']}",
-        )
-        for r in results
-    ]
+    """
+    Enqueue all 9 connector syncs.
+    Falls back to synchronous execution when Redis / arq is unavailable.
+    """
+    try:
+        results = await enqueue_sync_all(triggered_by=current_user.email)
+        return [
+            SyncResponse(
+                source=r["source"],
+                job_id=r["job_id"],
+                status="queued",
+                message=f"Queued — poll /api/tasks/{r['job_id']}",
+            )
+            for r in results
+        ]
+    except Exception as exc:
+        logger.warning("Redis unavailable, running all syncs synchronously: %s", exc)
+        results = sync_all(db, triggered_by=current_user.email)
+        return [SyncResponse(**r) for r in results]
 
 
 @router.post("/retry/{run_id}", response_model=SyncResponse)
@@ -117,13 +137,18 @@ async def retry_sync(
             status_code=400,
             detail=f"Run {run_id} has status '{run.status}'; only failed runs can be retried",
         )
-    job_id = await enqueue_sync(run.source_name, triggered_by=current_user.email)
-    return SyncResponse(
-        source=run.source_name,
-        job_id=job_id,
-        status="queued",
-        message=f"Retry queued for {run.source_name} — poll /api/tasks/{job_id}",
-    )
+    try:
+        job_id = await enqueue_sync(run.source_name, triggered_by=current_user.email)
+        return SyncResponse(
+            source=run.source_name,
+            job_id=job_id,
+            status="queued",
+            message=f"Retry queued for {run.source_name} — poll /api/tasks/{job_id}",
+        )
+    except Exception as exc:
+        logger.warning("Redis unavailable, running retry synchronously: %s", exc)
+        result = sync_source(run.source_name, db, triggered_by=current_user.email)
+        return SyncResponse(**result)
 
 
 # ── read endpoints ─────────────────────────────────────────────────────────────

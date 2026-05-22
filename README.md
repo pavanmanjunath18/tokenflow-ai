@@ -188,6 +188,59 @@ Sync all connectors and generate recommendations from the **Integrations** page 
 
 ---
 
+## Free Deployment (Vercel + Render + Neon + Upstash)
+
+The stack costs $0/month. Render's free tier sleeps after 15 min of inactivity — first request takes ~30 s to wake up.
+
+### 1 — Push to GitHub
+
+```bash
+cd tokenflow_ai
+git remote add origin https://github.com/YOUR_USERNAME/tokenflow-ai.git
+git push -u origin main
+```
+
+### 2 — Neon (PostgreSQL)
+
+1. Sign up at **neon.tech** → New Project → create a database
+2. Copy the connection string (looks like `postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require`)
+
+### 3 — Upstash (Redis)
+
+1. Sign up at **upstash.com** → New Database → choose Global
+2. Copy the **Redis URL** from the "Connect" tab (either `redis://` or `rediss://` — both work)
+
+### 4 — Render (Backend API + Worker)
+
+1. Sign up at **render.com** → New → Blueprint
+2. Connect your GitHub repo — Render detects `render.yaml` automatically
+3. In the environment variable form, fill in:
+   - `DATABASE_URL` — your Neon connection string
+   - `REDIS_URL` — your Upstash Redis URL
+   - `ALLOWED_ORIGINS` — leave blank for now; you'll update after Vercel deploy
+4. Click **Apply** — Render runs `build.sh` (installs deps, generates synthetic data, runs migrations) then starts the API + arq worker via `start.sh`
+5. Copy the URL Render assigns (e.g. `https://tokenflow-api.onrender.com`)
+
+### 5 — Vercel (Frontend)
+
+1. Sign up at **vercel.com** → New Project → import your GitHub repo
+2. Set **Root Directory** to `frontend`
+3. Add environment variable: `NEXT_PUBLIC_API_URL` = your Render URL from step 4
+4. Deploy — Vercel auto-detects Next.js 16
+
+### 6 — Wire CORS
+
+Back in Render dashboard → Environment → set `ALLOWED_ORIGINS` to your Vercel URL (e.g. `https://tokenflow-ai.vercel.app`) → Redeploy.
+
+### 7 — First boot
+
+Open `https://your-app.vercel.app/login` → `admin@tokenflow.local` / `tokenflow2024`  
+Go to **Integrations** → **Sync All** to ingest synthetic data → **Recommendations** → **Generate**.
+
+> **Note:** Without Redis, sync endpoints fall back to synchronous execution automatically. The system status bar will show `Redis disconnected` but everything else works.
+
+---
+
 ## Running Tests
 
 ```bash

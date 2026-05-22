@@ -1,0 +1,28 @@
+## Render deployment — TokenFlow AI
+## Free tier: web service sleeps after 15 min of inactivity (~30 s cold start).
+##
+## Setup:
+##   1. Create a Neon PostgreSQL database → copy the connection string as DATABASE_URL
+##   2. Create an Upstash Redis database  → copy the connection string as REDIS_URL
+##   3. Push this repo to GitHub
+##   4. Go to render.com → New → Blueprint → select this repo
+##   5. Fill in the three "sync: false" env vars in the Render dashboard
+
+services:
+  - type: web
+    name: tokenflow-api
+    runtime: python
+    plan: free
+    buildCommand: bash scripts/build.sh
+    startCommand: cd backend && bash start.sh
+    envVars:
+      - key: DATABASE_URL
+        sync: false        # paste your Neon connection string here
+      - key: REDIS_URL
+        sync: false        # paste your Upstash Redis URL (redis:// or rediss://)
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ALLOWED_ORIGINS
+        sync: false        # paste your Vercel URL e.g. https://tokenflow-ai.vercel.app
+      - key: PYTHON_VERSION
+        value: "3.12.0"
