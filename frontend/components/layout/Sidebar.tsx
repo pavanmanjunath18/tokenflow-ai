@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Plug2, Building2, Cpu, CreditCard,
-  ShieldAlert, Lightbulb, Users, Activity,
+  ShieldAlert, Lightbulb, Users, Activity, Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +18,7 @@ const NAV = [
   { href: "/recommendations",  label: "Recommendations",  icon: Lightbulb },
   { href: "/employees",        label: "Employee Review",  icon: Users },
   { href: "/infrastructure",   label: "Infrastructure",   icon: Activity },
+  { href: "/settings",         label: "Settings",         icon: Settings },
 ];
 
 export function Sidebar() {
