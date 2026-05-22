@@ -21,7 +21,7 @@ Ingestion pattern: UPSERT using PostgreSQL ON CONFLICT DO UPDATE.
 
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -69,7 +69,7 @@ def sync_source(source: str, db: Session, triggered_by: str = "system") -> dict:
 
     run = IntegrationSyncRun(
         source_name=source,
-        started_at=datetime.utcnow(),
+        started_at=datetime.now(timezone.utc),
         triggered_by=triggered_by,
     )
     db.add(run)
@@ -90,7 +90,7 @@ def sync_source(source: str, db: Session, triggered_by: str = "system") -> dict:
         run.rows_ingested = ingested
         run.validation_warnings_count = warning_count
         run.status = "success"
-        run.finished_at = datetime.utcnow()
+        run.finished_at = datetime.now(timezone.utc)
         run.duration_ms = int((time.monotonic() - t_start) * 1000)
 
         db.add(AuditLog(
@@ -114,7 +114,7 @@ def sync_source(source: str, db: Session, triggered_by: str = "system") -> dict:
         db.rollback()
         run.status = "failed"
         run.error_message = str(exc)[:500]
-        run.finished_at = datetime.utcnow()
+        run.finished_at = datetime.now(timezone.utc)
         run.duration_ms = int((time.monotonic() - t_start) * 1000)
         db.add(run)
         db.commit()

@@ -1,10 +1,23 @@
+import { getToken, clearToken } from "./auth";
+
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  const token = getToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options?.headers as Record<string, string> ?? {}),
+  };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const res = await fetch(`${BASE}${path}`, { ...options, headers });
+
+  if (res.status === 401) {
+    clearToken();
+    if (typeof window !== "undefined") window.location.href = "/login";
+    throw new Error("Not authenticated");
+  }
+
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`API ${path} → ${res.status}: ${text}`);
@@ -13,6 +26,14 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 // ── types ────────────────────────────────────────────────────────────────────
+
+export interface CurrentUser {
+  id: number;
+  email: string;
+  full_name: string;
+  role: string;
+  is_active: boolean;
+}
 
 export interface DashboardOverview {
   total_spend: number;
@@ -88,6 +109,9 @@ export interface Recommendation {
   confidence_score: number;
   status: string;
   requires_human_review: boolean;
+  signature_hash?: string;
+  reviewed_by?: string;
+  review_notes?: string;
 }
 
 export interface IntegrationStatus {
@@ -106,10 +130,33 @@ export interface AuditLog {
   timestamp: string;
   action: string;
   actor: string;
+  actor_email?: string;
+  actor_role?: string;
   resource_type: string;
   resource_id: string;
   details: string;
 }
+
+// ── auth api ─────────────────────────────────────────────────────────────────
+
+export const authApi = {
+  login: async (email: string, password: string): Promise<string> => {
+    const body = new URLSearchParams({ username: email, password });
+    const res = await fetch(`${BASE}/api/auth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Login failed: ${text}`);
+    }
+    const data = await res.json();
+    return data.access_token as string;
+  },
+
+  getCurrentUser: (): Promise<CurrentUser> => apiFetch<CurrentUser>("/api/auth/me"),
+};
 
 // ── api calls ────────────────────────────────────────────────────────────────
 
@@ -126,11 +173,11 @@ export const api = {
   // recommendations
   recommendations: (status?: string) =>
     apiFetch<Recommendation[]>(`/api/recommendations${status ? `?status=${status}` : ""}`),
-  generateRecs:   () => apiFetch<{ generated: number }>("/api/recommendations/generate", { method: "POST" }),
-  reviewRec: (id: number, status: string, reviewed_by: string, review_notes = "") =>
+  generateRecs: () => apiFetch<{ generated: number }>("/api/recommendations/generate", { method: "POST" }),
+  reviewRec: (id: number, status: string, review_notes = "") =>
     apiFetch<Recommendation>(`/api/recommendations/${id}/review`, {
       method: "PATCH",
-      body: JSON.stringify({ status, reviewed_by, review_notes }),
+      body: JSON.stringify({ status, review_notes }),
     }),
 
   // integrations

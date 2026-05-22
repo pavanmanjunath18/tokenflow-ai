@@ -4,8 +4,11 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, XCircle, RefreshCw, Clock } from "lucide-react";
 import { api, IntegrationStatus } from "@/lib/api";
 import { fmtNum } from "@/lib/utils";
+import { useUser } from "@/context/UserContext";
 
 export default function IntegrationsPage() {
+  const { hasRole } = useUser();
+  const canSync = hasRole("admin");
   const [statuses, setStatuses] = useState<IntegrationStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState<string | null>(null);
@@ -50,14 +53,16 @@ export default function IntegrationsPage() {
           <h1 className="text-2xl font-bold text-white">Integrations</h1>
           <p className="text-sm text-zinc-500 mt-1">Connector-based architecture — CSV/JSONL for MVP, real APIs in production</p>
         </div>
-        <button
-          onClick={handleSyncAll}
-          disabled={syncAll}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium disabled:opacity-50 transition-colors"
-        >
-          <RefreshCw className={`h-4 w-4 ${syncAll ? "animate-spin" : ""}`} />
-          {syncAll ? "Syncing…" : "Sync All"}
-        </button>
+        {canSync && (
+          <button
+            onClick={handleSyncAll}
+            disabled={syncAll}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw className={`h-4 w-4 ${syncAll ? "animate-spin" : ""}`} />
+            {syncAll ? "Syncing…" : "Sync All"}
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -97,7 +102,7 @@ export default function IntegrationsPage() {
                 </div>
 
                 {/* Sync button */}
-                {key && (
+                {key && canSync && (
                   <button
                     onClick={() => handleSync(key)}
                     disabled={!!syncing || syncAll}

@@ -6,7 +6,7 @@ ai_request_traces, a Kafka consumer on ai.telemetry.events, or a direct
 PostgreSQL read from a real gateway database.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.connectors.base import BaseConnector
 
@@ -29,7 +29,7 @@ class APIGatewayConnector(BaseConnector):
         for r in rows:
             try:
                 ts_raw = r.get("timestamp", "")
-                ts = datetime.fromisoformat(ts_raw) if ts_raw else datetime.utcnow()
+                ts = datetime.fromisoformat(ts_raw) if ts_raw else datetime.now(timezone.utc)
                 out.append({
                     "trace_id":                    r["trace_id"].strip(),
                     "timestamp":                   ts,

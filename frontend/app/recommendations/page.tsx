@@ -3,10 +3,13 @@
 import { useEffect, useState } from "react";
 import { RefreshCw, CheckCircle, XCircle, Search } from "lucide-react";
 import { api, Recommendation } from "@/lib/api";
-import { fmt$$ } from "@/lib/utils";
-import { SEVERITY_COLOR, STATUS_COLOR } from "@/lib/utils";
+import { fmt$$, SEVERITY_COLOR, STATUS_COLOR } from "@/lib/utils";
+import { useUser } from "@/context/UserContext";
 
 export default function RecommendationsPage() {
+  const { hasRole } = useUser();
+  const canGenerate = hasRole("admin");
+  const canReview   = hasRole("admin", "reviewer");
   const [recs, setRecs] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -28,7 +31,7 @@ export default function RecommendationsPage() {
   const review = async (id: number, status: "accepted" | "rejected") => {
     setReviewing(id);
     try {
-      await api.reviewRec(id, status, "admin@acmecorp.com");
+      await api.reviewRec(id, status);
       load();
     } finally { setReviewing(null); }
   };
@@ -46,14 +49,16 @@ export default function RecommendationsPage() {
             All recommendations require human review · no automated decisions
           </p>
         </div>
-        <button
-          onClick={generate}
-          disabled={generating}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium disabled:opacity-50 transition-colors"
-        >
-          <RefreshCw className={`h-4 w-4 ${generating ? "animate-spin" : ""}`} />
-          {generating ? "Generating…" : "Regenerate"}
-        </button>
+        {canGenerate && (
+          <button
+            onClick={generate}
+            disabled={generating}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw className={`h-4 w-4 ${generating ? "animate-spin" : ""}`} />
+            {generating ? "Generating…" : "Regenerate"}
+          </button>
+        )}
       </div>
 
       {totalSavings > 0 && (
@@ -76,7 +81,7 @@ export default function RecommendationsPage() {
             <section className="space-y-3">
               <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Pending Review ({pending.length})</h2>
               {pending.map(r => (
-                <RecCard key={r.id} rec={r} reviewing={reviewing} onReview={review} />
+                <RecCard key={r.id} rec={r} reviewing={reviewing} onReview={review} canReview={canReview} />
               ))}
             </section>
           )}
@@ -101,11 +106,12 @@ export default function RecommendationsPage() {
 }
 
 function RecCard({
-  rec, reviewing, onReview, readonly,
+  rec, reviewing, onReview, canReview, readonly,
 }: {
   rec: Recommendation;
   reviewing: number | null;
   onReview: (id: number, status: "accepted" | "rejected") => void;
+  canReview?: boolean;
   readonly?: boolean;
 }) {
   return (
@@ -145,7 +151,7 @@ function RecCard({
           )}
         </div>
 
-        {!readonly && rec.status === "pending" && (
+        {!readonly && canReview && rec.status === "pending" && (
           <div className="flex items-center gap-2">
             <button
               onClick={() => onReview(rec.id, "rejected")}

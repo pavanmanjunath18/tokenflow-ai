@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import { Sidebar } from "@/components/layout/Sidebar";
+import { Providers } from "@/components/providers/Providers";
+import { AppShell } from "@/components/layout/AppShell";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -13,9 +14,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased dark`}>
-      <body className="min-h-full bg-zinc-950 text-zinc-100 flex">
-        <Sidebar />
-        <main className="ml-60 flex-1 min-h-screen overflow-auto">{children}</main>
+      <body className="min-h-full bg-zinc-950 text-zinc-100">
+        <Providers>
+          <AppShell>{children}</AppShell>
+        </Providers>
       </body>
     </html>
   );

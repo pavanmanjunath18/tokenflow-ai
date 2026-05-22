@@ -6,7 +6,7 @@ or kubectl logs pipe. Example Prometheus query:
   sum(rate(http_requests_total{namespace="ai-platform"}[5m])) by (pod)
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from app.connectors.base import BaseConnector
 
 
@@ -25,7 +25,7 @@ class KubernetesLogsConnector(BaseConnector):
         for r in rows:
             try:
                 ts_raw = r.get("timestamp", "")
-                ts = datetime.fromisoformat(ts_raw) if ts_raw else datetime.utcnow()
+                ts = datetime.fromisoformat(ts_raw) if ts_raw else datetime.now(timezone.utc)
                 out.append({
                     "log_id":            r["log_id"].strip(),
                     "timestamp":         ts,

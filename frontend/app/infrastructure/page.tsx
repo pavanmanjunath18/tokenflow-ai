@@ -68,7 +68,8 @@ export default function InfrastructurePage() {
           <StatCard label="Total Restarts"   value={String(summary.total_restarts)}
             accent={summary.total_restarts > 5} />
           <StatCard label="Total Errors"     value={fmtNum(summary.total_errors)} />
-          <StatCard label="Total Errors"     value={fmtNum(summary.total_errors)} />
+          <StatCard label="Avg CPU Usage"
+            value={pods.length ? `${(pods.reduce((s, p) => s + p.avg_cpu_percent, 0) / pods.length).toFixed(1)}%` : "—"} />
         </div>
       )}
 

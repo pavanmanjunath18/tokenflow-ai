@@ -6,7 +6,7 @@ Chrome extension background-script telemetry stream (e.g. HTTPS POST
 to /api/telemetry/browser with a JWT per install).
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from app.connectors.base import BaseConnector
 
 
@@ -25,7 +25,7 @@ class BrowserExtensionConnector(BaseConnector):
         for r in rows:
             try:
                 ts_raw = r.get("timestamp", "")
-                ts = datetime.fromisoformat(ts_raw) if ts_raw else datetime.utcnow()
+                ts = datetime.fromisoformat(ts_raw) if ts_raw else datetime.now(timezone.utc)
                 out.append({
                     "event_id":              r["event_id"].strip(),
                     "timestamp":             ts,

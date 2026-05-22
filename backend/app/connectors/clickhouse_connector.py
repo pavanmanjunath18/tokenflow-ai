@@ -6,7 +6,7 @@ Production upgrade: replace _fetch_raw() with a ClickHouse HTTP query:
 using clickhouse-driver or clickhouse-connect.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from app.connectors.base import BaseConnector
 
 
@@ -25,7 +25,7 @@ class ClickHouseConnector(BaseConnector):
         for r in rows:
             try:
                 day = r.get("date", "")
-                ts  = datetime.fromisoformat(day + "T12:00:00") if day else datetime.utcnow()
+                ts  = datetime.fromisoformat(day + "T12:00:00") if day else datetime.now(timezone.utc)
                 input_t  = self._safe_int(r.get("input_tokens", 0))
                 output_t = self._safe_int(r.get("output_tokens", 0))
                 out.append({

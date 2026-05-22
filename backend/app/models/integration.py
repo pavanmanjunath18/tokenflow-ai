@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import String, Integer, DateTime, Text, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
@@ -10,7 +10,7 @@ class IntegrationSyncRun(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     source_name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     source_type: Mapped[str] = mapped_column(String(50), default="csv")
-    started_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
     rows_ingested: Mapped[int] = mapped_column(Integer, default=0)

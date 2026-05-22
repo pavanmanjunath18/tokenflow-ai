@@ -12,7 +12,7 @@ Deduplication: each recommendation has a signature_hash derived from
 import hashlib
 import statistics
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
@@ -72,7 +72,7 @@ def generate_recommendations(db: Session) -> int:
                 current.description = candidate.description
                 current.reasoning = candidate.reasoning
                 current.severity = candidate.severity
-                current.updated_at = datetime.utcnow()
+                current.updated_at = datetime.now(timezone.utc)
                 updated += 1
             else:
                 # Replace stale record with fresh data, reset review fields
@@ -86,7 +86,7 @@ def generate_recommendations(db: Session) -> int:
                 current.reviewed_by = ""
                 current.reviewed_at = None
                 current.review_notes = ""
-                current.updated_at = datetime.utcnow()
+                current.updated_at = datetime.now(timezone.utc)
                 updated += 1
         else:
             db.add(candidate)
@@ -260,10 +260,10 @@ def review_recommendation(
         return None
     rec.status = status
     rec.reviewed_by = reviewed_by
-    rec.reviewed_at = datetime.utcnow()
+    rec.reviewed_at = datetime.now(timezone.utc)
     rec.review_notes = notes
     if status == "resolved":
-        rec.resolved_at = datetime.utcnow()
+        rec.resolved_at = datetime.now(timezone.utc)
     db.add(AuditLog(
         action="recommendation_reviewed",
         resource_type="recommendation",

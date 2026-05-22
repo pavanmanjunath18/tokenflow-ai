@@ -1,6 +1,6 @@
 """Core analytics queries — all read from ai_usage_events."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import func, text, Integer, case
 from sqlalchemy.orm import Session
 
@@ -25,8 +25,8 @@ def get_overview(db: Session) -> dict:
     total_requests = int(q.total_requests or 0)
     avg_cost       = total_spend / total_requests if total_requests else 0.0
 
-    period_start: datetime = q.period_start or datetime.utcnow()
-    period_end:   datetime = q.period_end   or datetime.utcnow()
+    period_start: datetime = q.period_start or datetime.now(timezone.utc)
+    period_end:   datetime = q.period_end   or datetime.now(timezone.utc)
     days = max((period_end - period_start).days, 1)
     monthly_projected = (total_spend / days) * 30
 
