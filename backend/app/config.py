@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     log_level: str = "info"
     synthetic_data_dir: str = str(Path(__file__).parent.parent.parent / "synthetic-data")
-    allowed_origins: str = "http://localhost:3000"
+    allowed_origins: str = "http://localhost:3000,https://tokenflow-ai-two.vercel.app"
 
     # Redis / async queue
     redis_url: str = "redis://localhost:6379/0"
