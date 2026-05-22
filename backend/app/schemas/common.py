@@ -96,6 +96,8 @@ class LicenseWasteSummary(BaseModel):
 class RecommendationOut(OrmBase):
     id: int
     created_at: datetime
+    updated_at: datetime
+    signature_hash: str
     recommendation_type: str
     severity: str
     department: str
@@ -107,11 +109,15 @@ class RecommendationOut(OrmBase):
     confidence_score: float
     status: str
     requires_human_review: bool
+    reviewed_by: str
+    reviewed_at: datetime | None
+    review_notes: str
+    resolved_at: datetime | None
+    investigation_notes: str
 
 
 class RecommendationReview(BaseModel):
     status: str  # accepted / rejected / investigating / resolved
-    reviewed_by: str
     review_notes: str = ""
 
 
@@ -122,6 +128,8 @@ class AuditLogOut(OrmBase):
     timestamp: datetime
     action: str
     actor: str
+    actor_email: str
+    actor_role: str
     resource_type: str
     resource_id: str
     details: str

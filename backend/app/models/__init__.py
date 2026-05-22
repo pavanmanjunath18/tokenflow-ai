@@ -1,3 +1,4 @@
+from app.models.user import User
 from app.models.employee import Employee, Department
 from app.models.model_pricing import ModelPricing
 from app.models.license import AILicense
@@ -11,6 +12,7 @@ from app.models.integration import IntegrationSyncRun
 from app.models.audit_log import AuditLog
 
 __all__ = [
+    "User",
     "Employee", "Department", "ModelPricing", "AILicense",
     "AIUsageEvent", "BrowserEvent", "KubernetesLog",
     "KafkaEvent", "ClickHouseAggregate",

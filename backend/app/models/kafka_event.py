@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, Float, Integer, DateTime, Boolean
+from sqlalchemy import String, Float, Integer, DateTime, Boolean, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 
@@ -7,6 +7,7 @@ from app.database import Base
 class KafkaEvent(Base):
     """Raw Kafka telemetry events — supplemental view of api_gateway traces."""
     __tablename__ = "kafka_events"
+    __table_args__ = (UniqueConstraint("trace_id", name="uq_kafka_event_trace_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     trace_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)

@@ -1,12 +1,13 @@
 from datetime import datetime
-from sqlalchemy import String, Float, Integer, DateTime, Boolean
+from sqlalchemy import String, Float, Integer, DateTime, Boolean, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 
 
 class AIUsageEvent(Base):
-    """Normalized event table — all connectors funnel into this."""
+    """Normalized event table — api_gateway is the authoritative source."""
     __tablename__ = "ai_usage_events"
+    __table_args__ = (UniqueConstraint("trace_id", name="uq_usage_event_trace_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     trace_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)

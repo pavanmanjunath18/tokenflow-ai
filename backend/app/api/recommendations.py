@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.deps import require_admin, require_admin_or_reviewer
 from app.database import get_db
+from app.models.user import User
 from app.services.recommendation_service import (
     generate_recommendations,
     review_recommendation,
@@ -13,7 +15,10 @@ router = APIRouter(prefix="/recommendations", tags=["recommendations"])
 
 
 @router.post("/generate")
-def generate(db: Session = Depends(get_db)):
+def generate(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
     count = generate_recommendations(db)
     return {"generated": count, "message": f"Generated {count} recommendations"}
 
@@ -27,11 +32,18 @@ def list_recommendations(status: str | None = None, db: Session = Depends(get_db
 
 
 @router.patch("/{rec_id}/review", response_model=RecommendationOut)
-def review(rec_id: int, body: RecommendationReview, db: Session = Depends(get_db)):
+def review(
+    rec_id: int,
+    body: RecommendationReview,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_or_reviewer),
+):
     valid = {"accepted", "rejected", "investigating", "resolved"}
     if body.status not in valid:
         raise HTTPException(status_code=422, detail=f"status must be one of {valid}")
-    rec = review_recommendation(rec_id, body.status, body.reviewed_by, body.review_notes, db)
+    rec = review_recommendation(
+        rec_id, body.status, current_user.email, body.review_notes, db
+    )
     if not rec:
         raise HTTPException(status_code=404, detail="Recommendation not found")
     return rec
