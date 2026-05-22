@@ -2,7 +2,11 @@
 # Render build script — runs from the repo root (tokenflow_ai/)
 set -e
 
+echo "==> Python version"
+python3 --version
+
 echo "==> Installing Python dependencies"
+pip install --upgrade pip
 pip install -r backend/requirements.txt
 
 echo "==> Generating synthetic data"
