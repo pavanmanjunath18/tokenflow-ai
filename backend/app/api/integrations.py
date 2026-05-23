@@ -14,7 +14,7 @@ New endpoints added in Phase 5:
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -42,6 +42,20 @@ from app.connectors.productivity_connector import ProductivityConnector
 from app.schemas.common import SyncResponse, IntegrationStatus
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
+
+
+def _run_sync_bg(source: str, triggered_by: str) -> None:
+    """Run a sync in a FastAPI BackgroundTask (own DB session, no request timeout)."""
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        sync_source(source, db, triggered_by=triggered_by)
+        cache_service.cache_delete_prefix("integrations:")
+        cache_service.cache_delete_prefix("dashboard:")
+    except Exception as exc:
+        logger.error("Background sync failed for %s: %s", source, exc)
+    finally:
+        db.close()
 
 _CONNECTOR_META = {
     "identity":      IdentityConnector,
@@ -73,12 +87,14 @@ def _compute_health(last_run: IntegrationSyncRun | None, warnings: int) -> str:
 @router.post("/sync/{source}", response_model=SyncResponse)
 async def sync_one(
     source: str,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
     """
     Enqueue a connector sync via arq (returns job_id immediately).
-    Falls back to synchronous execution when Redis / arq is unavailable.
+    Falls back to a FastAPI BackgroundTask when Redis / arq is unavailable
+    so the HTTP handler returns instantly regardless of dataset size.
     """
     if source not in CONNECTORS:
         raise HTTPException(status_code=404, detail=f"Unknown source: {source}")
@@ -91,19 +107,24 @@ async def sync_one(
             message=f"Sync queued for {source} — poll /api/tasks/{job_id} for status",
         )
     except Exception as exc:
-        logger.warning("Redis unavailable, running %s sync synchronously: %s", source, exc)
-        result = sync_source(source, db, triggered_by=current_user.email)
-        return SyncResponse(**result)
+        logger.warning("Redis unavailable, running %s sync in background task: %s", source, exc)
+        background_tasks.add_task(_run_sync_bg, source, current_user.email)
+        return SyncResponse(
+            source=source,
+            status="running",
+            message=f"Sync started for {source} — refresh integrations page in ~30s",
+        )
 
 
 @router.post("/sync/all/run", response_model=list[SyncResponse])
 async def sync_all_sources(
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
     """
     Enqueue all 9 connector syncs.
-    Falls back to synchronous execution when Redis / arq is unavailable.
+    Falls back to FastAPI BackgroundTasks when Redis / arq is unavailable.
     """
     try:
         results = await enqueue_sync_all(triggered_by=current_user.email)
@@ -117,9 +138,16 @@ async def sync_all_sources(
             for r in results
         ]
     except Exception as exc:
-        logger.warning("Redis unavailable, running all syncs synchronously: %s", exc)
-        results = sync_all(db, triggered_by=current_user.email)
-        return [SyncResponse(**r) for r in results]
+        logger.warning("Redis unavailable, queuing all syncs as background tasks: %s", exc)
+        responses = []
+        for source in CONNECTORS:
+            background_tasks.add_task(_run_sync_bg, source, current_user.email)
+            responses.append(SyncResponse(
+                source=source,
+                status="running",
+                message=f"Sync started for {source}",
+            ))
+        return responses
 
 
 @router.post("/retry/{run_id}", response_model=SyncResponse)
