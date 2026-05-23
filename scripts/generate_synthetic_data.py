@@ -34,7 +34,10 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 START_DATE = datetime(2024, 12, 1)
 END_DATE = datetime(2025, 5, 31, 23, 59, 59)
 N_EMPLOYEES = 150
-N_GATEWAY_EVENTS = 120_000
+N_GATEWAY_EVENTS = 10_000   # reduced from 120k — keeps Render free-tier RAM under limit
+N_BROWSER_EVENTS = 5_000    # reduced from 30k
+N_KAFKA_EVENTS   = 10_000   # reduced from 20k sample
+N_K8S_ROWS       = 3_000    # cap kubernetes logs
 
 DEPARTMENTS = {
     "Engineering":       {"headcount": 35, "weight": 0.30},
@@ -513,7 +516,7 @@ def generate_browser_extension_events(employees: list[dict]) -> list[dict]:
     rows = []
     event_id = 1
 
-    for _ in range(30_000):
+    for _ in range(N_BROWSER_EVENTS):
         emp = random.choice(employees)
         dept = emp["department"]
         ts = random_business_timestamp()
@@ -569,7 +572,7 @@ def generate_kafka_telemetry(employees: list[dict], traces: list[dict]) -> list[
     print("  Generating kafka_ai_telemetry.jsonl …")
     rows = []
     # Sample 20k traces and reformat as Kafka-style events
-    sample = random.sample(traces, min(20_000, len(traces)))
+    sample = random.sample(traces, min(N_KAFKA_EVENTS, len(traces)))
     for t in sample:
         rows.append({
             "event_type":     "ai_request_completed",
@@ -660,9 +663,9 @@ def generate_kubernetes_logs() -> list[dict]:
     rows = []
     log_id = 1
 
-    # One row per pod per hour
+    # One row per pod per hour (capped at N_K8S_ROWS)
     current = START_DATE
-    while current < END_DATE:
+    while current < END_DATE and len(rows) < N_K8S_ROWS:
         for pod in PODS:
             cluster = CLUSTERS[0] if "west" in pod or int(pod[-1]) <= 3 else CLUSTERS[1]
             hour_of_day = current.hour
