@@ -23,7 +23,13 @@ class Settings(BaseSettings):
 
     @property
     def origins(self) -> list[str]:
-        return [o.strip() for o in self.allowed_origins.split(",")]
+        base = [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
+        # Always allow the deployed Vercel frontend regardless of env var value
+        always_allow = [
+            "http://localhost:3000",
+            "https://tokenflow-ai-two.vercel.app",
+        ]
+        return list(dict.fromkeys(base + always_allow))
 
 
 settings = Settings()
